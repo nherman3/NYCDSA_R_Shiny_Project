@@ -785,7 +785,7 @@ function(input, output, session) {
       } else if (input$mapvehicle=="Motor Bike") {
         colorNumeric(palette = c("dodgerblue", "blue"), domain = accident_map()$total_inj)
       } else if (input$mapvehicle=="Passenger Car") {
-        colorNumeric(palette = c("green3", "green4"), domain = accident_map()$total_inj)
+        colorNumeric(palette = c("green2", "green4"), domain = accident_map()$total_inj)
       } else if (input$mapvehicle=="Truck") {
         colorNumeric(palette = c("mediumpurple1", "darkorchid4"), domain = accident_map()$total_inj)
       } 
