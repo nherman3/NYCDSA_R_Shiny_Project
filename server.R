@@ -207,7 +207,7 @@ function(input, output, session) {
         geom_bar(aes(fill=borough), stat="identity", position = "dodge") + 
         scale_x_continuous(breaks = c(1:12), labels=month_list) +
         labs(y = "Number of Accidents", x = "Month", 
-             title = "Number of Accidents per Month by Borough") +
+             title = paste("Number of Accidents per Month by Borough",plot_title_years())) +
         theme(plot.title = element_text(size = 16, face = "bold"),
               axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
               legend.position = "bottom")
@@ -221,7 +221,7 @@ function(input, output, session) {
         geom_bar(aes(fill=borough), stat="identity", position = "dodge") + 
         scale_x_continuous(breaks = c(1:7),labels=day_list) + 
         labs(y = "Number of Accidents", x = "Day of Week", 
-             title = "Number of Accidents per Day of Week by Borough") +
+             title = paste("Number of Accidents per Day of Week by Borough",plot_title_years())) +
         theme(plot.title = element_text(size = 16, face = "bold"),
               axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
               legend.position = "bottom")
@@ -235,7 +235,7 @@ function(input, output, session) {
         geom_bar(aes(fill=borough), stat="identity", position = "dodge") +
         scale_x_continuous(breaks = c(0:23),labels = c(0:23)) +
         labs(y = "Number of Accidents", x = "Hour",
-             title = "Number of Accidents per Hour by Borough",
+             title = paste("Number of Accidents per Hour by Borough",plot_title_years()),
              subtitle = "(Events between 0:00 - 0:59 grouped at 0)") +
         theme(plot.title = element_text(size = 16, face = "bold"),
               legend.position = "bottom")
@@ -262,7 +262,8 @@ function(input, output, session) {
         scale_x_continuous(breaks = c(2012:2023)) + 
         theme(plot.title = element_text(size = 16, face = "bold"),
               legend.position = "none") + 
-        labs(title = "Percentage of Accidents per Year by Borough",x="Year",y="Percentage")
+        labs(title = paste("Percentage of Accidents per Year by Borough",plot_title_years()),
+             x="Year",y="Percentage")
     } else if (input$selected_option == "Monthly") {
       merge(
         filtered_df() %>% 
@@ -283,7 +284,8 @@ function(input, output, session) {
         theme(plot.title = element_text(size = 16, face = "bold"),
               axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
               legend.position = "bottom") + 
-        labs(title = "Percentages of Accidents by Month",x="Month",y="Percentage")
+        labs(title = paste("Percentages of Accidents by Month",plot_title_years()),
+             x="Month",y="Percentage")
     } else if (input$selected_option == "Weekly") {
       merge(
         filtered_df() %>% 
@@ -298,7 +300,7 @@ function(input, output, session) {
         filter(borough %in% input$bor) %>%
         ggplot(aes(x=wday,y=pct,color=borough)) + geom_line(stat="identity") + 
         scale_x_continuous(breaks = c(1:7),labels=day_list) + 
-        labs(title = "Percentages of Accidents by Day of Week",
+        labs(title = paste("Percentages of Accidents by Day of Week",plot_title_years()),
              x="Day of Week",y="Percentage") +
         theme(plot.title = element_text(size = 16, face = "bold"),
               axis.text.x = element_text(angle = 45, vjust = 1, hjust=1),
@@ -318,7 +320,7 @@ function(input, output, session) {
         ggplot(aes(x=hour,y=pct,color=borough)) + 
         #geom_smooth(se=FALSE) +
         geom_line() +
-        labs(title = "Percentages of Accidents per Hour by Borough",
+        labs(title = paste("Percentages of Accidents per Hour by Borough",plot_title_years()),
              subtitle = "(Events between 0:00 - 0:59 grouped at 0)",
              x="Hour", y="Percentage") + 
         scale_x_continuous(breaks = c(0:23),labels = c(0:23)) +
