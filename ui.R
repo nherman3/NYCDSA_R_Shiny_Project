@@ -146,7 +146,7 @@ dashboardPage(
                                   choices = c("Accidents", "Injuries", "Deaths"),
                                   selected = "Accidents")),
                       column(4, selectInput("inj_dead_choice", "Type of Injured/Dead:",
-                                  choices = c("All", "Pedestrians", 
+                                  choices = c("All", "Pedestrian", 
                                               "Cyclist", "Motorist"),
                                   selected = "Any")))
              

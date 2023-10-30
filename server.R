@@ -719,7 +719,7 @@ function(input, output, session) {
                    summarise(total_inj=sum(number.of.persons.injured)) %>%
                    arrange(desc(total_inj)) %>%
                    head(input$mappointcount))
-        } else if (input$inj_dead_choice=="Pedestrians"){
+        } else if (input$inj_dead_choice=="Pedestrian"){
           return(filtered_df_map2()[,c("zip.code", "borough","year", "latitude","longitude","number.of.pedestrians.injured")] %>%
                    filter(between(year, input$maprange[1], input$maprange[2])) %>%
                    group_by(latitude,longitude) %>%
@@ -749,7 +749,7 @@ function(input, output, session) {
                  summarise(total_inj=sum(number.of.persons.killed)) %>%
                  arrange(desc(total_inj)) %>%
                  head(input$mappointcount))
-      } else if (input$inj_dead_choice=="Pedestrians"){
+      } else if (input$inj_dead_choice=="Pedestrian"){
         return(filtered_df_map2()[,c("zip.code", "borough","year", "latitude","longitude","number.of.pedestrians.killed")] %>%
                  filter(between(year, input$maprange[1], input$maprange[2])) %>%
                  group_by(latitude,longitude) %>%
@@ -812,8 +812,19 @@ function(input, output, session) {
   })
   
   output$map_count_title <- renderText({
+    if (input$mapchoice=="Accidents"){
     paste("Top", as.character(input$mappointcount),
           "Locations Where the Most", as.character(input$mapchoice), "Occur:")
+    } else {
+      if (input$inj_dead_choice=="All") {
+        paste("Top", as.character(input$mappointcount),
+              "Locations Where the Most", as.character(input$mapchoice), "Occur:")
+      } else {
+        paste("Top", as.character(input$mappointcount),
+              "Locations Where the Most", as.character(input$inj_dead_choice), 
+              as.character(input$mapchoice), "Occur:")
+      }
+    }
   })
   
   output$map_subtitle <- renderText({
