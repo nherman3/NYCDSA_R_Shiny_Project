@@ -1,0 +1,652 @@
+---
+title: "R_Data_Analysis_Project"
+author: "Nick Herman"
+date: "2023-06-21"
+output: html_document
+---
+# Data Cleaning:
+Import Libraries
+```{r}
+library(tidyr) 
+library(tidyverse)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(leaflet)
+```
+
+Read initial data into R
+```{r}
+raw_df <- read.csv("./Motor_Vehicle_Collisions_-_Crashes.csv")
+raw_pop_df <-read.csv("./New_York_City_Population_by_Borough__1950_-_2040.csv")
+```
+
+Cleaning crashes data
+```{r}
+# Create a new dataframe for cleaning
+crashes = raw_df
+
+# Change column names to lowercase for readability
+names(crashes)=tolower(names(crashes))
+
+# Remove rows with incomplete information, e.g. no location or borough or vehicle involved information
+crashes = crashes %>%
+  filter(location != "" & vehicle.type.code.1 !="") # 
+        # vehicle.type.code.1 !="" removed 12,457 rows
+        # location !="" removed 228,503 rows 
+        # borough != "" would have removed 427,936 more rows
+
+# Change values in text columns to lowercase for data cleaning
+crashes = crashes %>%
+  mutate_at(vars(borough, on.street.name, cross.street.name, off.street.name, contributing.factor.vehicle.1:vehicle.type.code.5), tolower)
+
+# Replace NA values with 0 for integer columns
+crashes = crashes %>% mutate_if(is.integer, ~replace(., is.na(.), 0))
+
+# Change date column data type to date
+crashes$crash.date = mdy(crashes$crash.date)
+
+# Add columns for year, month, day, day of week (Sunday = 1)
+crashes = crashes %>% mutate(year=year(crash.date), month=month(crash.date), day=day(crash.date), wday=wday(crash.date))
+
+# Change crash.time column data type to hours and minutes
+crashes$crash.time=hm(crashes$crash.time)
+crashes = mutate(crashes,hour=hour(crash.time))
+
+# Rather than removing data with coordinates data but no borough or zip listed, this data was relabeled as "Unlisted" so it could still be used for overall analysis but ignored when zooming in on specific location stats
+crashes = crashes %>%
+  mutate(borough=case_when(borough=="" ~ "unlisted", TRUE ~ borough)) %>%
+  mutate(zip.code = as.character(zip.code), 
+         zip.code=case_when(is.na(zip.code) ~ "unlisted", TRUE ~ zip.code))
+
+# # Fixing rows where borough is unlisted but other rows exist with identified borough and identical latitude and longitude values
+# crashes <- crashes %>% 
+#   group_by(latitude, longitude) %>%
+#   mutate(borough = ifelse("unlisted" %in% borough, first(borough), borough)) %>%
+#   ungroup()
+# 
+# # Fixing rows where zip code is 0 but other rows exist with identified zip code and identical latitude and longitude values
+# crashes <- crashes %>% 
+#   group_by(latitude, longitude) %>%
+#   mutate(zip.code = ifelse(zip.code==0, first(zip.code[zip.code != 0]), zip.code)) %>%
+#   ungroup() %>%
+#     mutate(zip.code = ifelse(is.na(zip.code), 0, zip.code))
+
+
+# Data Wrangling (defining vehicle categories)
+    vehicle_types = c("Bicycle/Scooter","E-Bicycle/Scooter","Motor Bike","Other/Unknown","Passenger Car","Truck","")
+    truck = c("amb","ambu","ambul","ambulance","armored truck","beverage truck","box t","box truck","bus","carry all","chassis cab","concrete mixer","dump","fdny","fire","firet","firetruck","fire truck","flat bed","flat rack","garbage or refuse","large com veh(6 or more tires)","lift boom","pk","pickup with mounted camper","refrigerated van","schoo","school bus","small com veh(4 tires)",'snow plow',"stake or rack","tanker","tow t","tow truck","tow truck / wrecker","tract","tractor truck diesel","tractor truck gasoline","trail","trailer","truck","usps")
+    passenger_car = c("2 dr sedan","3-door","4 dr sedan","convertible","limo","livery vehicle","passenger vehicle","pick-up truck","sedan","sport utility / station wagon","station wagon/sport utility vehicle","taxi","van")
+    bike = c("bicycle","bike","scoot","scooter","pedicab")
+    e_bike = c("e-bik","e-bike","e-sco","e-scooter")
+    motor_bike=c("moped","motorbike","motorcycle","motorscooter")
+    other = c("other","unkown","unkno","unk")
+
+# ^FUTURE WORK: MACHINE LEARNING TO GROUP ALL DATA BASED ON SIMILAR TERMS
+
+    
+    
+    
+    
+# Defining a list of the vehicle type columns 
+vechicle_type_codes = c("vehicle.type.code.1","vehicle.type.code.2","vehicle.type.code.3","vehicle.type.code.4","vehicle.type.code.5")
+
+# Re-assigning all the vehicles into one of the predetermined categories
+crashes = crashes %>%
+  mutate_at(vars(one_of(vechicle_type_codes)), ~case_when(
+              . %in% truck ~ "Truck",
+              . %in% passenger_car ~ "Passenger Car",
+              . %in% bike ~ "Bicycle/Scooter",
+              . %in% e_bike ~ "E-Bicycle/Scooter",
+              . %in% motor_bike ~ "Motor Bike",
+              . %in% other ~ "Other/Unknown",
+              . == "unknown" ~ "Other/Unknown",
+              . == "small com veh(4 tires)" ~ "Passenger Car",
+              TRUE ~ .
+            ))
+
+# Removing the rows where vehicle types did not fall into the pre-determined categories
+                                                                   # 1762470
+crashes = crashes[crashes$vehicle.type.code.1 %in% vehicle_types,] # 1747412
+crashes = crashes[crashes$vehicle.type.code.2 %in% vehicle_types,] # 1733086
+crashes = crashes[crashes$vehicle.type.code.3 %in% vehicle_types,] # 1732662
+crashes = crashes[crashes$vehicle.type.code.4 %in% vehicle_types,] # 1732605
+crashes = crashes[crashes$vehicle.type.code.5 %in% vehicle_types,] # 1732591
+  # This cost 30k rows or 1.7% of the data
+
+# Removing rows with inaccurate location information
+crashes = crashes %>% filter(location!="(0.0, 0.0)")
+
+# Manually reviewed data to find rows where location was entered incorrectly:
+to_be_removed =  c(3414001, 3414570, 3414570, 3423014, 3425492, 3428278, 
+                   3432967, 3432967, 3442139, 3442931, 3442931, 3443941, 
+                   3443941, 3445552, 3445552, 3446643, 3455788, 3455788, 
+                   3457736, 3549567, 3581787, 3582956, 3585773, 3588925, 
+                   3616653, 3625066, 3628215, 3650157, 3667901, 3672194, 
+                   3680199, 3690234, 3701559, 3705394, 3710587, 3717295, 
+                   3718980, 3719109, 3719800, 3748053, 3748726, 3768019, 
+                   3772990, 3777311, 3828137, 3833107, 3927302, 3929785, 
+                   3968897, 4024533, 4025636)
+crashes = crashes %>% filter(!collision_id %in% to_be_removed)
+
+# Fixing specific wrong location noted
+crashes[crashes$location=="(40.90126, -73.90186)",]$latitude <- 40.79382
+crashes[crashes$location=="(40.90126, -73.90186)",]$longitude <- -73.97897
+crashes[crashes$location=="(40.90126, -73.90186)",]$location <- "(40.79382, -73.97897)"
+
+# Small (~50) subsection of data where correct cross streets entered but
+# wrong latitude. all for same location. updated accordingly:
+crashes$location[crashes$location=="(40.75837, -201.23706)"] <- "(40.75837, -73.957756)"
+crashes$longitude[crashes$longitude==-201.23706] <- -73.95776
+```
+
+Update the population df to get values for every year in the data set
+```{r}
+# Remove data from all other years than 2010 and 2020 censuses 
+population_df2 = raw_pop_df[2:6,c("Borough","X2010","X2020","X2030")]
+
+# Pivot data so it is in useable format
+population_df2 = population_df2 %>%
+  pivot_longer(c(X2010,X2020,X2030),names_to = "year",values_to = "population")
+
+# Convert year to numeric type and remove "X" from each value.  Also trim whitespace from Borough
+population_df2$year = as.numeric(str_remove(population_df2$year,"X"))
+population_df2$Borough = tolower(str_trim(population_df2$Borough))
+population_df2 = population_df2 %>% rename("borough" = "Borough")
+
+# Increases in Populations per year:
+bx_inc = c(
+  (round(c(1:9)*0.1*(population_df2$population[2] - population_df2$population[1])) + population_df2$population[1]),
+  (round(c(1:3)*0.1*(population_df2$population[3] - population_df2$population[2])) + population_df2$population[2]))
+
+br_inc = c(
+  (round(c(1:9)*0.1*(population_df2$population[5] - population_df2$population[4])) + population_df2$population[4]),
+  (round(c(1:3)*0.1*(population_df2$population[6] - population_df2$population[5])) + population_df2$population[5]))
+
+ma_inc = c(
+  (round(c(1:9)*0.1*(population_df2$population[8] - population_df2$population[7])) + population_df2$population[7]),
+  (round(c(1:3)*0.1*(population_df2$population[9] - population_df2$population[8])) + population_df2$population[8]))
+
+qu_inc = c(
+  (round(c(1:9)*0.1*(population_df2$population[11] - population_df2$population[10])) + population_df2$population[10]),
+  (round(c(1:3)*0.1*(population_df2$population[12] - population_df2$population[11])) + population_df2$population[11]))
+
+si_inc = c(
+  (round(c(1:9)*0.1*(population_df2$population[14] - population_df2$population[13])) + population_df2$population[13]),
+  (round(c(1:3)*0.1*(population_df2$population[15] - population_df2$population[14])) + population_df2$population[14]))
+
+# Binding the above calculations with the data frame and sorting
+population_df2 = bind_rows(population_df2,
+      data.frame(borough=rep(c("bronx"),each=12),year=c(2011:2019,2021:2023),population=bx_inc),
+      data.frame(borough=rep(c("brooklyn"),each=12),year=c(2011:2019,2021:2023),population=br_inc),
+      data.frame(borough=rep(c("manhattan"),each=12),year=c(2011:2019,2021:2023),population=ma_inc),
+      data.frame(borough=rep(c("queens"),each=12),year=c(2011:2019,2021:2023),population=qu_inc),
+      data.frame(borough=rep(c("staten island"),each=12),year=c(2011:2019,2021:2023),population=si_inc)) %>%
+  arrange(borough) %>% arrange(year)
+
+# Removing years prior to crash data available
+population_df2 = population_df2 %>% filter(population_df2$year > 2011, population_df2$year < 2030)
+```
+
+Merge crashes data with population data
+```{r}
+crashes = merge(crashes,population_df2,by=c("borough","year"),all = TRUE)
+crashes = crashes[!(is.na(crashes$borough)),]
+```
+
+Misc. Other Variables for shorthand
+```{r}
+month_list = c("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December")
+month_list_short=c("Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec")
+day_list = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")
+day_list_short = c("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+```
+
+
+
+# Writing Cleaned Data for Shiny App
+```{r}
+str(crashes)
+# write.csv(head(crashes,1000), file = "./crashes_cleaned.csv", row.names=FALSE)
+
+write.csv(crashes, file = "./crashes_cleaned.csv", row.names=FALSE)
+```
+
+# New dataframes
+Misc. Other Dfs for analysis
+```{r}
+# crashes.13.22 = crashes %>%
+#   filter(year != 2012 & year!=2023)
+
+bike_crashes <- crashes %>%
+  filter(vehicle.type.code.1 == "Bicycle/Scooter" |
+         vehicle.type.code.2 == "Bicycle/Scooter" |
+         vehicle.type.code.3 == "Bicycle/Scooter" |               
+         vehicle.type.code.4 == "Bicycle/Scooter" |
+         vehicle.type.code.5 == "Bicycle/Scooter")
+# 
+# bike_crashes.13.22 <- crashes %>%
+#   filter(year != 2012 & year!=2023) %>%
+#   filter(vehicle.type.code.1 == "Bicycle/Scooter" |
+#          vehicle.type.code.2 == "Bicycle/Scooter" |
+#          vehicle.type.code.3 == "Bicycle/Scooter" |               
+#          vehicle.type.code.4 == "Bicycle/Scooter" |
+#          vehicle.type.code.5 == "Bicycle/Scooter")
+```
+
+# Analysis:
+
+Frequency of types of vehicles in accidents
+```{r}
+crashes %>%
+  group_by(vehicle.type.code.1) %>%
+  summarise(n = n()) %>%
+  mutate(Freq_pct=round(100*n/sum(n),4)) %>%
+  arrange(desc(Freq_pct))
+
+crashes %>%
+  group_by(contributing.factor.vehicle.2) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n))
+      # (1239206+263019)/1732591
+
+
+crashes %>%
+  filter(vehicle.type.code.1=="Bicycle/Scooter" & vehicle.type.code.2!="Bicycle/Scooter") 
+```
+
+PLOTTING TESTS
+```{r}
+# injuries per year by boro (in facet grid) bar plot
+crashes %>% 
+  group_by(borough,year) %>%
+  filter(borough!="unlisted") %>%
+  summarise(injuries = sum(number.of.persons.injured), deaths = sum(number.of.persons.killed)) %>%
+  ggplot(aes(x=year,y=injuries,fill=borough)) + geom_bar(stat="identity", position = "dodge") + facet_grid(rows = vars(borough))
+```
+
+injuries and deaths per year by boro (no facet grid) line plot
+```{r}
+bike_crashes %>% 
+  group_by(borough,year) %>%
+  filter(borough!="unlisted") %>%
+  summarise(injuries = sum(number.of.persons.injured)) %>%
+  ggplot(aes(x=year,y=injuries,color=borough)) + 
+  geom_line(stat="identity") + 
+  scale_x_continuous(breaks = c(2012:2023))
+
+
+# crashes %>% 
+#   group_by(borough,year) %>%
+#   filter(borough!="unlisted") %>%
+#   summarise(deaths = sum(number.of.persons.killed)) %>%
+#   ggplot(aes(x=year,y=deaths,color=borough)) + 
+#   geom_line(stat="identity") + 
+#   scale_x_continuous(breaks = c(2012:2023))
+```
+```{r}
+# injuries per year by boro shown as percentage of population
+bike_crashes %>% 
+  group_by(borough,year) %>%
+  filter(borough!="unlisted") %>%
+  summarise(injuries = sum(number.of.persons.injured), 
+            #deaths = sum(number.of.persons.killed),
+            pop=mean(population),
+            pct_ppl_inj=100*injuries/pop)%>%#,
+            #pct_ppl_dead=100*deaths/pop) %>%
+  arrange(desc(pct_ppl_inj)) %>% ggplot(aes(x=year,y=pct_ppl_inj,color=borough)) + geom_line(stat="identity") + scale_x_continuous(breaks = c(2013:2022))
+
+# crashes %>% 
+#   group_by(borough,year) %>%
+#   filter(borough!="unlisted") %>%
+#   summarise(injuries = sum(number.of.persons.injured), deaths = sum(number.of.persons.killed),pop=mean(population),
+#             pct_ppl_inj=round(100*injuries/pop,2),pct_ppl_dead=100*deaths/pop) %>%
+#   arrange(desc(pct_ppl_inj)) %>%
+#   ggplot(aes(x=year,y=pct_ppl_inj,color=borough)) + geom_line(stat="identity") + scale_x_continuous(breaks = c(2013:2022))
+```
+```{r}
+# total number of accidents per year by borough (stacked bar plot)
+crashes %>% 
+  group_by(borough,year) %>%
+  filter(borough!="unlisted") %>%
+  count() %>%
+  ggplot(aes(x=year,y=n,fill=borough)) + geom_bar(stat="identity") + scale_x_continuous(breaks = c(2013:2022))
+```
+```{r}
+# bike accidents per year by borough (stacked bar plot)
+# This is ONLY VEHICLE 1
+crashes %>% 
+  group_by(borough,year) %>%
+  filter(borough!="unlisted",vehicle.type.code.1=="Bicycle/Scooter") %>%
+  ggplot(aes(x=year,fill=borough)) + geom_bar() + labs(title="Number of Bicycle/Scooter Accidents Per Year",x="Year",y="Count")
+```
+```{r}
+# percent of accidents where a bike is vehicle #1 or #2
+crashes %>%
+  filter(vehicle.type.code.1 == "Bicycle/Scooter" |
+         vehicle.type.code.2 == "Bicycle/Scooter" |
+         vehicle.type.code.3 == "Bicycle/Scooter" |               
+         vehicle.type.code.4 == "Bicycle/Scooter" |
+         vehicle.type.code.5 == "Bicycle/Scooter") %>%
+  ggplot(aes(x=year,fill=borough)) + geom_bar() + labs(title="Number of Bicycle/Scooter Accidents Per Year",x="Year",y="Count")  
+
+bike_crashes.13.22 %>%
+    ggplot(aes(x=year,fill=borough)) + geom_bar() + labs(title="Number of Bicycle/Scooter Accidents Per Year",x="Year",y="Count")
+
+```
+```{r}
+crashes %>%
+  filter(borough!="unlisted") %>%
+  group_by(borough,year,month) %>%
+  summarise(accidents=n(),injuries=sum(number.of.persons.injured)) %>%
+  arrange(borough,year,month) %>%
+  mutate(date=as.Date(paste0(year,"-",month,"-01")))%>% 
+  ggplot(.,aes(x=date,y=accidents,color=borough)) + geom_line()
+
+
++geom_bar(stat = "identity") +
+  facet_grid(rows=vars(borough))
+##################################################
+
+```
+
+Percentage of accidents by month (with graph) also has injuries.
+```{r}
+# accidents per month
+crashes %>% 
+  group_by(borough,month) %>%
+  filter(borough!="unlisted") %>%
+  summarise(injuries = sum(number.of.persons.injured))%>%
+  ggplot(aes(x=month,y=injuries,color=borough)) + geom_line(stat="identity") + scale_x_continuous(breaks = c(1:12),labels=month_list_short) #+ facet_grid(rows = vars(borough))
+  # this would be better as percentage of accidents that occur in each month
+```
+```{r}
+# Percentage of accidents by month of year. <- The unlisted boro accidents follow similar trend.
+merge(
+  crashes %>% 
+    group_by(borough,month) %>%
+    filter(borough!="unlisted" & year!=2012 & year!=2023) %>%
+    summarise(total_month=n()),
+  crashes %>% 
+    group_by(borough,month) %>%
+    filter(borough!="unlisted"& year!=2012 & year!=2023) %>%
+    summarise(total_month=n()) %>%
+    summarise(total_accs=sum(total_month)),
+  by="borough") %>%
+  mutate(pct=100*total_month/total_accs) %>%
+  ggplot(aes(x=month,y=pct,color=borough)) + geom_line(stat="identity") + scale_x_continuous(breaks = c(1:12),labels=month_list_short) + labs(title = "Percentages of Accidents by Month",x="Month",y="Percentage")
+# 2012 and 2023 left blank because they don't have full years data
+
+# Percentage of accidents by day of week <- The unlisted boro accidents follow similar trend.
+merge(
+  crashes %>% 
+    group_by(borough,wday) %>%
+    #filter(borough!="unlisted" & year!=2012 & year!=2023) %>%
+    summarise(total_wday=n()),
+  crashes %>% 
+    group_by(borough,wday) %>%
+    #filter(borough!="unlisted"& year!=2012 & year!=2023) %>%
+    summarise(total_wday=n()) %>%
+    summarise(total_accs=sum(total_wday)),
+  by="borough") %>%
+  mutate(pct=100*total_wday/total_accs) %>%
+  ggplot(aes(x=wday,y=pct,color=borough)) + geom_line(stat="identity") + scale_x_continuous(breaks = c(1:7),labels=day_list) + labs(title = "Percentages of Accidents by Day of Week",x="Day",y="Percentage") +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)) 
+
+# Percentage of accidents by hour of day <- The unlisted boro accidents follow similar trend.
+merge(
+  crashes %>% 
+    group_by(borough,hour) %>%
+    #filter(borough!="unlisted" & year!=2012 & year!=2023) %>%
+    summarise(total_hour=n()),
+  crashes %>% 
+    group_by(borough,hour) %>%
+    #filter(borough!="unlisted"& year!=2012 & year!=2023) %>%
+    summarise(total_hour=n()) %>%
+    summarise(total_accs=sum(total_hour)),
+  by="borough") %>%
+  mutate(pct=100*total_hour/total_accs) %>%
+  arrange(desc(pct)) %>% ggplot(aes(x=hour,y=pct,color=borough)) + 
+  #geom_smooth(se=FALSE) +
+  geom_line() +
+  labs(title = "Percentages of Accidents by Hour of Day",
+       subtitle = "(Events between 0:00 - 0:59 grouped at 0)",
+       x="Hour", 
+       y="Percentage") + scale_x_continuous(breaks = c(0:23),labels = c(0:23)) +
+  theme(plot.title = element_text(size = 16, face = "bold"),
+        plot.subtitle = element_text(size = 10,face = "italic"))
+
+
+# rush hour is 7am to 10am in the mornings and 4pm to 7pm in the evenings on weekdays
+# filter this by weekdays and put vertical color bar background over rush hour
+```
+```{r}
+test = crashes
+
+test = test %>%
+  mutate(tstamp = 60*hour(crash.time)+minute(crash.time))
+
+test = test %>%
+  mutate(tstamp_rounded = floor(tstamp / 15) * 15)
+
+```
+```{r}  
+
+# Percentage of INJURIES by month. <- The unlisted boro accidents follow similar trend.
+merge(
+  crashes %>% 
+    group_by(borough,month) %>%
+    filter(borough!="unlisted") %>%
+    summarise(total_month=sum(number.of.persons.injured)),
+  crashes %>% 
+    group_by(borough,month) %>%
+    filter(borough!="unlisted") %>%
+    summarise(total_month=sum(number.of.persons.injured)) %>%
+    summarise(total_accs=sum(total_month)),
+  by="borough") %>%
+  mutate(pct=100*total_month/total_accs) %>%
+  ggplot(aes(x=month,y=pct,color=borough)) + geom_line(stat="identity") + scale_x_continuous(breaks = c(1:12),labels=month_list_short) # + facet_grid(rows = vars(borough))
+
+# compare rates of injuries per accident month to month --> eveenthough there are less accidents in jan-apr, are they just as or more or less injury causing
+
+```
+
+counts of stuff
+```{r}
+# counts of number of injuries per accident
+dplyr::count(crashes, number.of.persons.injured, sort = TRUE)
+
+# Number of injuries per year by borough
+crashes %>% group_by(borough,year) %>% filter(borough!="unlisted") %>%
+  summarise(n=sum(number.of.persons.injured))
+
+# counts of number of injuries per accident (sorted by borough)
+dplyr::count(crashes %>% group_by(borough) %>% filter(borough!="unlisted"),
+  number.of.persons.injured, sort = TRUE) %>% arrange(borough)
+
+# counts of number of injuries per accident (sorted by year and borough)
+dplyr::count(crashes %>% group_by(borough,year) %>% filter(borough!="unlisted"),
+  number.of.persons.injured, sort = TRUE) %>% arrange(borough,year)
+
+# how many unlisted per year?
+dplyr::count(crashes %>% filter(borough=="unlisted"),
+             year, sort = F) %>%
+  ggplot(aes(x=year,y=n))+geom_bar(stat = "identity") + labs(title="number of reports without boro")
+    # what percentage of reports per year are not filed? this can't be done by borough obviously...
+
+```
+
+counts of number of injuries per accident (sorted by location)
+```{r}
+# counts of number of injuries per accident (sorted by location)
+dplyr::count(crashes %>% group_by(location), #%>% filter(number.of.persons.injured!=0),
+  number.of.persons.injured, sort = TRUE)
+```
+
+# MAP Plots
+```{r}
+start <- Sys.time()
+ggplot(crashes, aes(x = longitude, y = latitude)) +
+  coord_quickmap() +
+  geom_point(size=0.05)
+print(Sys.time()-start) # approx 11.7 seconds
+
+start <- Sys.time()
+crashes %>% filter(borough=="manhattan" & number.of.persons.injured<8) %>%
+ggplot(aes(x = longitude, y = latitude)) +
+  coord_quickmap() + 
+  geom_point(aes(size=number.of.persons.injured,color=as.factor(number.of.persons.injured))) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+print(Sys.time()-start) # 
+
+crashes %>% filter(borough=="manhattan" & number.of.persons.injured>1) %>%
+ggplot(aes(x = longitude, y = latitude)) +
+  coord_quickmap() + 
+  geom_point(size=.05,aes(color=as.factor(number.of.persons.injured))) +
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust=1))
+
+crashes %>% filter(borough=="manhattan" & number.of.persons.injured>1) %>%
+
+ggsave(file="manhattan.pdf")
+```
+
+```{r}
+leaflet(data=test2) %>%
+  addTiles() %>%
+  addMarkers(~longitude, ~latitude, popup= ~total_inj, label = ~total_inj)
+  #addMarkers(clusterOptions = markerClusterOptions(),~longitude, ~latitude, popup= ~total_inj, label = ~total_inj)
+
+test = bike_crashes[1:100,c("latitude","longitude","number.of.persons.injured")]
+
+test2 = bike_crashes %>%
+  group_by(latitude,longitude) %>%
+  summarise(n=n(),total_inj=sum(number.of.persons.injured)) %>%
+  filter(n>=10) %>%
+  arrange(desc(total_inj))
+```
+
+
+TIME TEST...FASTER TO FILTER WITHIN THAN EACH TIME but inconsistent....
+```{r}
+start <- Sys.time()
+merge(
+  crashes %>%
+    filter(year %in% c(2013:2022)) %>%
+    group_by(borough,month) %>%
+    summarise(total_month=sum(number.of.persons.injured)),
+  crashes %>% 
+    filter(year %in% c(2013:2022)) %>%
+    group_by(borough,month) %>%
+    summarise(total_month=sum(number.of.persons.injured)) %>%
+    summarise(total_accs=sum(total_month)),
+  by="borough") %>%
+mutate(pct=100*total_month/total_accs) %>%
+filter(borough %in% c("bronx","brooklyn","manhattan","queens","staten island")) %>%
+ggplot(aes(x=month,y=pct,color=borough)) + 
+geom_line(stat="identity") + 
+scale_x_continuous(breaks = c(1:12),labels=month_list_short) + 
+theme(plot.title = element_text(size = 16, face = "bold"),
+      legend.position = c(0.8, 0.2)) + 
+labs(title = "Percentages of Accidents by Month",x="Month",y="Percentage")
+print(Sys.time()-start)
+
+start2 <- Sys.time()
+
+crashes4 <- crashes %>% 
+  filter(borough %in% c("bronx","brooklyn","manhattan","queens","staten island")) %>%
+  filter(year %in% c(2013:2022))
+
+merge(
+  crashes4 %>% 
+    group_by(borough,month) %>%
+    summarise(total_month=sum(number.of.persons.injured)),
+  crashes4 %>% 
+    group_by(borough,month) %>%
+    summarise(total_month=sum(number.of.persons.injured)) %>%
+    summarise(total_accs=sum(total_month)),
+  by="borough") %>%
+mutate(pct=100*total_month/total_accs) %>%
+ggplot(aes(x=month,y=pct,color=borough)) + 
+geom_line(stat="identity") + 
+scale_x_continuous(breaks = c(1:12),labels=month_list_short) + 
+theme(plot.title = element_text(size = 16, face = "bold"),
+      legend.position = c(0.8, 0.2)) + 
+labs(title = "Percentages of Accidents by Month",x="Month",y="Percentage")
+print(paste("time2",Sys.time()-start2))
+```
+
+```{r}
+crashes<-read.csv(file = "./crashes_cleaned.csv")
+```
+
+
+```{r}
+unique(filter(df[df$borough %in% c('manhattan','brooklyn'),])$zip.code)
+```
+
+```{r}
+test = crashes[1:100,c("latitude","longitude","number.of.persons.injured")] %>%
+  group_by(latitude,longitude) %>%
+  summarise(total_inj=sum(number.of.persons.injured)) %>%
+  arrange(desc(total_inj))
+```
+
+
+```{r}
+crashes2<-df[,c("borough","latitude","longitude","number.of.persons.injured",
+                "number.of.persons.killed")] %>%
+  filter(borough=="unlisted") %>%
+  group_by(latitude,longitude) %>%
+  summarise(total_inj=sum(number.of.persons.injured)) %>%
+  arrange(desc(total_inj)) %>%
+  head(100)
+
+leaflet(data=crashes2) %>%
+  addTiles() %>%
+  addMarkers(~longitude, ~latitude, popup= ~total_inj, label = ~total_inj)
+```
+
+
+
+
+```{r}
+df%>%
+          group_by(borough,month) %>%
+          summarise(accident_count = n()) %>%
+          ggplot(aes(x=month,y=accident_count)) + 
+          geom_bar(aes(fill=borough), stat="identity", position = "dodge")
+```
+
+
+```{r}
+df %>% group_by(zip.code) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n))
+```
+```{r}
+df4 %>% group_by(zip.code) %>%
+  summarise(n=n()) %>%
+  arrange(desc(n))
+```
+
+```{r}
+# df %>%
+#   group_by(latitude, longitude, borough) %>%
+#   summarize(n=)
+
+test = df[c("latitude", "longitude", "borough")] %>%
+  group_by(latitude, longitude) %>%
+  mutate(borough2=paste(sort(unique(borough)),collapse="&")) %>%
+  filter(grepl("&",borough2))
+
+test2 = df[c("latitude", "longitude", "borough")] %>%
+  group_by(latitude, longitude) %>%
+  mutate(borough2=paste(sort(unique(borough)),collapse="&"))
+```
+
+
+
+
+
+
+
