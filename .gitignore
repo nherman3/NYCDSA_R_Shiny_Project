@@ -1,5 +1,5 @@
 # Hiding massive CSV file
-*.csv
+# *.csv
 
 # History files
 .Rhistory
